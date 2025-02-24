@@ -61,7 +61,7 @@ class Agent:
         self.true_pos=pos
 
     def set_belief(self,b=None):
-        if b==None:
+        if b is None:
             self.belief=np.ones(self.dims)
         else:
             self.belief=b
