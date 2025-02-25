@@ -1,6 +1,7 @@
 import numpy as np
 import pickle
 import perseus_redux
+import os
 
 alphas=[]
 alphas0=[]
