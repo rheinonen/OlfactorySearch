@@ -509,14 +509,6 @@ data={
 "times":times,
 "sources":starts,
 "hits":hits,
-"bad_traj":bad_traj,
-"entropies":entropies,
-"actions":actions,
-"beliefs":beliefs,
-"deltas":deltas,
-"dx":displacement_x,
-"dy":displacement_y,
-"positions":pos
 }
 
 
