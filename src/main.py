@@ -18,6 +18,34 @@ This script tests a policy. It supports many features, including dummy environme
 This was written for HPC resources and expects a number of environmental variables to be set.
 '''
 
+def get_random_data_marco(conc_list,good_mask,tmax=2500,isotropic=False):
+    indices=random.choice(np.argwhere(good_mask))
+    data=conc_list[0]
+    tstart=random.randrange(data.shape[0])
+    if isotropic:
+        conc=data
+        x=indices[0]
+        y=indices[1]
+        if random.random()<0.5:
+            conc=np.transpose(conc,axes=(0,2,1))
+            tmp=x
+            x=y
+            y=tmp
+        if random.random()<0.5:
+            conc=conc[:,::-1,:]
+            x=conc.shape[1]-x-1
+        if random.random()<0.5:
+            conc=conc[:,:,::-1]
+            y=conc.shape[2]-y-1
+        return conc[(tstart+np.arange(int(tmax*tstep)+1))%conc.shape[0],...],x,y,tstart
+    if random.random()<0.5:
+        conc=data[:,:,::-1]
+        return conc[(tstart+np.arange(int(tmax*tstep)+1))%conc.shape[0],...],indices[0],conc.shape[2]-indices[1]-1,tstart
+    conc=data
+    return conc[(tstart+np.arange(int(tmax*tstep)+1))%conc.shape[0],...],indices[0],indices[1],tstart
+
+
+
 def get_random_data_from_file(file_list,tmax=2500):
     file_choice=random.choice(file_list)
     with open(file_choice,'rb') as f:
@@ -76,18 +104,12 @@ def conditional_mean(times,tmax):
     return mean,err,failure
 
 def initialize_belief_and_source(ag,env,force_obs=None,force_source=None,min_radius=None):
-    if force_obs is not None:
-        obs=force_obs
-    else:
-        obs=utils.initial_hit_aurore(env)    
-    ag.updateBelief(obs,None)
-    ag.last_obs=1
     if min_radius is not None:
         x0=ag.true_pos[0]
         y0=ag.true_pos[1]
         for i in range(-min_radius,min_radius+1):
             for j in range(-min_radius,min_radius+1):
-                if i**2+j**2<min_radius**2 and i+x0<ag.belief.shape[0] and j+y0<ag.belief.shape[1] and i+x0>=0 and j+y0>=0:
+                if i**2+j**2<=min_radius**2 and i+x0<ag.belief.shape[0] and j+y0<ag.belief.shape[1] and i+x0>=0 and j+y0>=0:
                     ag.belief[x0+i,y0+j]=0
         ag.belief/=np.sum(ag.belief)
     if force_source is not None:
@@ -98,7 +120,7 @@ def initialize_belief_and_source(ag,env,force_obs=None,force_source=None,min_rad
     env.set_pos(xcoord,ycoord)
 
 
-def policy_trials(ag,env,n_trials,conc_list=None,good_starts=None,thompson=False,tmax=1000,ag_start=[5,16],errors=False,vf=None,error_frac=0.3333,bad_traj=False,force_obs=None,min_radius=None,verbose=False,corr_aware=False,sim_r0=[93,16],isotropic=False,save_beliefs=False,ignore_errors=True,deltas=False,save_displacements=False,force_source=None,exponents=None):
+def policy_trials(ag,env,n_trials,conc_list=None,good_starts=None,tmax=1000,ag_start=[5,16],errors=False,vf=None,error_frac=0.3333,bad_traj=False,force_obs=None,min_radius=None,verbose=False,corr_aware=False,sim_r0=[93,16],isotropic=False,save_beliefs=False,ignore_errors=True,deltas=False,save_displacements=False,force_source=None,exponents=None):
     '''
     the main function called in this script. it needs an agent, an environment and a number of search trials to perform.
     the important parameters are listed below.
@@ -114,6 +136,12 @@ def policy_trials(ag,env,n_trials,conc_list=None,good_starts=None,thompson=False
     
     a number of objects are returned, by far the most important of which are times and starts, which are the arrival times and the respective source positions for each trial
     '''
+    good_mask=np.sum(conc_list[0]>=7e-6,axis=0)>0
+    xx=np.arange(env.dims[0])
+    yy=np.arange(env.dims[1])
+    is_source=(xx[:,None]-sim_r0[0])**2+(yy[None,:]-sim_r0[1])**2<=min_radius**2
+    good_mask=good_mask&(~is_source)
+    good_mask=good_mask|good_mask[:,::-1]
     times=[]
     starts=[]
     hits=[]
@@ -133,6 +161,7 @@ def policy_trials(ag,env,n_trials,conc_list=None,good_starts=None,thompson=False
         bellman=[]
     else:
         bellman=None
+    print('starting main loop')
     for j in range(n_trials):
         if j%10==0:
             print("starting trial",j+1)
@@ -143,7 +172,7 @@ def policy_trials(ag,env,n_trials,conc_list=None,good_starts=None,thompson=False
             else:
                 src=None    
         else:
-            data,x0,y0,filename,tstart=get_random_data(conc_list,good_starts,tmax,isotropic=isotropic)
+            data,x0,y0,tstart=get_random_data_marco(conc_list,good_mask,tmax,isotropic)
             if verbose:
                 print('hit position in simulation:',x0,y0)
             env.set_data(data,data_r0=np.array(sim_r0))
@@ -151,9 +180,10 @@ def policy_trials(ag,env,n_trials,conc_list=None,good_starts=None,thompson=False
              
         env.reset()
         ag.reset(ag_start)
-        if thompson:
-            ag.policy.reset()
-        initialize_belief_and_source(ag,env,force_obs=force_obs,force_source=src,min_radius=min_radius)
+        ag.policy.reset()
+        env.set_pos(src[0],src[1])
+        ag.belief=good_mask[::-1,:].astype(float)
+        ag.belief/=np.sum(ag.belief)
         starts.append([env.x0,env.y0])
         if verbose:
             print('source at',env.x0,env.y0)
@@ -172,7 +202,7 @@ def policy_trials(ag,env,n_trials,conc_list=None,good_starts=None,thompson=False
                 if ignore_errors:
                     try: 
                         prev_pos=ag.true_pos  
-                        b=ag.stepInTime(make_obs=k!=0,corr_aware=corr_aware)
+                        b=ag.stepInTime(make_obs=True,corr_aware=corr_aware)
                         if save_displacements:
                             dx.append(ag.true_pos[0]-ag_start[0])
                             dy.append(ag.true_pos[1]-ag_start[1])               
@@ -187,7 +217,7 @@ def policy_trials(ag,env,n_trials,conc_list=None,good_starts=None,thompson=False
                         k=tmax-1
                         break
                 else:
-                    b=ag.stepInTime(make_obs=k!=0,corr_aware=corr_aware,exponents=exponents)
+                    b=ag.stepInTime(make_obs=True,corr_aware=corr_aware,exponents=exponents)
             if bad_traj or save_beliefs:
                 bs.append(ag.belief)
             if errors and random.random()<error_frac:
@@ -203,7 +233,7 @@ def policy_trials(ag,env,n_trials,conc_list=None,good_starts=None,thompson=False
                 print('hit')
             if ag.last_obs:
                 hit_times.append(k)
-            if ag.true_pos[0]==env.x0 and ag.true_pos[1]==env.y0:
+            if (ag.true_pos[0]-env.x0)**2+(ag.true_pos[1]-env.y0)**2<=min_radius**2:
                 hits.append(ag.nhits-1)
                 break
             #if ag.stuck_count>8:
@@ -321,7 +351,7 @@ if 'CORR_POL' in os.environ:
 ag_start=np.array([ag_start_x,ag_start_y])
 
 env=environment.OlfactorySearch2D((shape_x,shape_y),corr=corr_env,min_ell=min_ell,**env_params)
-ag=agent.CorrAgent(env,ag_start,obs_per_action=obs_per_action)
+ag=agent.CorrAgent(env,ag_start,obs_per_action=obs_per_action,minradius=min_radius)
 
 
 #compute likelihood from concentration if necessary
@@ -400,6 +430,12 @@ elif policy_name=='infotaxis':
     pol=policy.InfotacticPolicy(ag,with_corr=corr_pol,verbose=False,exponents=exponents)
 elif policy_name=='trivial':
     pol=policy.TrivialPolicy()
+elif policy_name=='cs':
+    if 'CS_ANGLE' in os.environ:
+        cs_angle = float(os.environ.get('CS_ANGLE'))
+    else:
+        cs_angle = 45
+    pol=policy.CastAndSurgeAngle(agent=ag,theta_deg=cs_angle)
 
 else:
     raise RuntimeError('name not recognized')
@@ -408,7 +444,6 @@ else:
 #the number of trials to perform
 n_trials=int(os.environ.get('N_TRIALS'))
 ag.set_policy(pol)
-thompson=False
 
 save_beliefs=False
 if "SAVE_BELIEFS" in os.environ:
@@ -446,7 +481,7 @@ else:
             conc_list=pickle.load(f)
         for i,conc in enumerate(conc_list):
             indices=np.argwhere(conc[:int(conc.shape[0]-tmax*tstep),...]>=threshold)
-            prepended=[[i]+list(index) for index in indices if not ((index[1]==source_x0 and index[2]==source_y0) or (index[1]-source_x0)**2+(index[2]-source_y0)**2<min_radius**2)]
+            prepended=[[i]+list(index) for index in indices if not ((index[1]==source_x0 and index[2]==source_y0) or (index[1]-source_x0)**2+(index[2]-source_y0)**2<=min_radius**2)]
             hit_starts=hit_starts+prepended
         print('there are',len(hit_starts),'acceptable starting positions in this dataset')  
 
@@ -465,7 +500,7 @@ else:
 verbose=False
 if "VERBOSE" in os.environ:
     verbose=bool(int(os.environ.get('VERBOSE')))
-times,starts,b0,hits,tmp,bad_traj,entropies,actions,beliefs,deltas,displacement_x,displacement_y,pos=policy_trials(ag,env,n_trials,conc_list,hit_starts,tmax=tmax,bad_traj=False,thompson=thompson,force_obs=1,min_radius=min_radius,verbose=verbose,corr_aware=corr_pol,ag_start=ag_start,sim_r0=[source_x0,source_y0],isotropic=isotropic,save_beliefs=save_beliefs,ignore_errors=ignore_errors,deltas=save_deltas,save_displacements=save_displacements,force_source=force_source,exponents=exponents)
+times,starts,b0,hits,tmp,bad_traj,entropies,actions,beliefs,deltas,displacement_x,displacement_y,pos=policy_trials(ag,env,n_trials,conc_list,hit_starts,tmax=tmax,bad_traj=False,force_obs=1,min_radius=min_radius,verbose=verbose,corr_aware=corr_pol,ag_start=ag_start,sim_r0=[source_x0,source_y0],isotropic=isotropic,save_beliefs=save_beliefs,ignore_errors=ignore_errors,deltas=save_deltas,save_displacements=save_displacements,force_source=force_source,exponents=exponents)
 mean,err,failure=conditional_mean(times,tmax)
 print('policy had mean arrival time',mean,'+/-',err,'with failure rate',failure)
 
@@ -474,14 +509,6 @@ data={
 "times":times,
 "sources":starts,
 "hits":hits,
-"bad_traj":bad_traj,
-"entropies":entropies,
-"actions":actions,
-"beliefs":beliefs,
-"deltas":deltas,
-"dx":displacement_x,
-"dy":displacement_y,
-"positions":pos
 }
 
 

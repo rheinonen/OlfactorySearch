@@ -1,3 +1,6 @@
+# Notes for qlearning branch
+This branch has been created in support of Rando et al. (arXiv link forthcoming). The initial condition and source radius have been changed to match that of the Q-learning agents tested in that paper. The pipeline is make_pomdp_file.py -> SARSOP or other point-based solver -> convert_policy.py -> main.py. After running main.py for all policies, one runs get_performance.py to extract performance metrics. constrained_mc.py is used to generate an ensemble of no-hit trajectories with different observation histories; it should be followed with geometry_distribution.py to plot the pdfs of trajectory metrics. 
+
 # OlfactorySearch (v0.1)
 Tools for simulating the olfactory search POMDP. This is an evolution of the earlier project PerseusPOMDP. The emphasis here is on searching in concentration data taken from a DNS, but it is also possible to search in a stochastic environment with encounters artificially drawn from a likelihood. This code was used in the papers Heinonen et al. (arXiv: 2409.11343) and Heinonen et al. (arXiv: TBD). A number of changes were made before publishing this code in order to improve its accessibility, but these changes have NOT yet been fully tested.
 

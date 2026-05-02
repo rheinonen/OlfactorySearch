@@ -6,11 +6,10 @@ import pickle
 import utils
 import os
 
-
-def transition(state,action,env):
+def transition(state,action,env,src_radius=2.0):
+    if state==0:
+        return 0
     pos=np.asarray(np.unravel_index(state,dims))
-    if np.array_equal(pos,[0,0]):
-        return state
     if action=="north":
         a=np.array([0,1])
     if action=="south":
@@ -29,22 +28,16 @@ def transition(state,action,env):
         new_pos[1]+=2*env.dims[1]-1
     elif new_pos[1]>(env.dims[1]-1):
         new_pos[1]-=2*env.dims[1]-1
+    if np.sum(new_pos**2)<= src_radius**2:
+        return 0
     return indices[tuple(new_pos)]
-
 
 def reward(state,action,env):
     if state==0:
         return 0
-    rew_matrix=env.rewards
-    if action=="east":
-        tmp=rew_matrix[0].flatten()
-    elif action=="west":
-        tmp=rew_matrix[1].flatten()
-    elif action=="north":
-        tmp=rew_matrix[2].flatten()
-    elif action=="south":
-        tmp=rew_matrix[3].flatten()
-    return tmp[state]
+    if transition(state,action,env) == 0:
+        return 1
+    return 0
 
 max_detections=1
 if 'GAMMA' in os.environ:
@@ -128,19 +121,34 @@ for i in range(2):
     for j in range(4):
         l.append(np.roll(env.likelihood[i][j],(env.dims[0],env.dims[1]),axis=(0,1)).flatten())
     likelihoods.append(l.copy())
-ag=agent.CorrAgent(env,np.array([ag_start_x,ag_start_y]))
 l_un_flattened=np.roll(env.unconditional_likelihood,(env.dims[0],env.dims[1]),axis=(0,1)).flatten()
 
 indices=np.reshape(np.arange(n_states),dims)
 actions=['east','west','north','south']
 
+
+ells=utils.get_likelihood_from_conc(conc,threshold=7e-6,isotropic=isotropic,tstep=tstep)
+l0=[ells['p_right_blank'],ells['p_left_blank'],ells['p_up_blank'],ells['p_down_blank']]
+l1=[ells['p_right_whiff'],ells['p_left_whiff'],ells['p_up_whiff'],ells['p_down_whiff']]
+l_un=ells['p_unconditional']
+env2=environment.OlfactorySearch2D((shape_x,shape_y),dummy=False,threshold=7e-6,corr=True)
+env2.set_likelihood(l_un,l0,l1,sim_r0=sim_r0)
+ag=agent.CorrAgent(env2,np.array([ag_start_x,ag_start_y]))
+
 ag.updateBelief(1,None)
 initial_belief=ag.perseus_belief(ag.belief)
+
+for i in range(-2,3):
+    for j in range(2,3):
+        if i**2+j**2<=4:
+            initial_belief[i,j]=0
+initial_belief=(initial_belief>0).astype(float)
 initial_belief/=np.sum(initial_belief)
 initial_belief=initial_belief.flatten()
 
 pomdp_file=os.environ.get('POMDP_FILE')
 pomdp_dir=os.environ.get('POMDP_DIR')
+
 with open(pomdp_dir+'/'+pomdp_file,'w') as f:
     f.write('discount: ')
     f.write(str(gamma))
@@ -200,7 +208,6 @@ with open(pomdp_dir+'/'+pomdp_file,'w') as f:
                 f.write(str(1)+'\n')
             else:
                 f.write('0 1 0 \n')
-
 
     for state in range(n_states):
         for a in actions:

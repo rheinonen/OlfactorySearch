@@ -131,7 +131,7 @@ for thresh in [1,3,5,7]:
     cs_successes.append(cs_succ)
     cs_norm_times.append(cs_norm)
 
-out = {'returns':cs_results,'thetas':['10','15','20','25','30','35','40','45','50','60','75','90']}
+out = {'returns':cs_returns,'success_rates':cs_successes,'norm_times':cs_norm_times,'thetas':['10','15','20','25','30','35','40','45','50','60','75','90']}
 with open('../results/cs_results.pkl','wb') as f:
     pickle.dump(out,f)
 
