@@ -6,6 +6,48 @@ import math
 from timeit import default_timer as timer
 
 
+class CastAndSurgeAngle:
+    def __init__(self, agent, theta_deg=45.0):
+        self.agent = agent
+        self.theta_deg = theta_deg
+        self.slope = math.tan(math.radians(theta_deg))
+
+        # Local coordinates since last detection
+        self.x = 0          # upwind distance since last hit
+        self.y = 0          # lateral offset from centerline
+        self.side = 1       # current casting side: +1 or -1
+
+    def reset(self):
+        self.x = 0
+        self.y = 0
+        self.side = 1
+
+    def getAction(self, belief):
+        # Surge on odor hit
+        if self.agent.last_obs:
+            self.reset()
+            self.x += 1
+            return np.array([-1, 0])
+
+        # Current lateral target on this side of the cone
+        target_mag = math.ceil(self.slope * self.x)
+        target_y = self.side * target_mag
+
+        # If we have not yet reached the target lateral displacement,
+        # keep casting laterally.
+        if self.y < target_y:
+            self.y += 1
+            return np.array([0, 1])
+
+        if self.y > target_y:
+            self.y -= 1
+            return np.array([0, -1])
+
+        # If we are exactly at the target boundary, switch side and move upwind.
+        self.side *= -1
+        self.x += 1
+        return np.array([-1, 0])
+
 class CastAndSurge:
     def __init__(self,agent):
         self.agent=agent
@@ -41,16 +83,20 @@ class RandomPolicy:
         return random.choice(self.actions)
 
 class ThompsonSampling:
-    def __init__(self,agent,persistence_time=1):
+    def __init__(self,agent,persistence_time=None,reset_at_odor=False):
         self.agent=agent
         self.persistence_time=persistence_time
         self.t=0
         self.location=None
+        self.reset_at_odor=reset_at_odor
     def reset(self):
         self.t=0
         self.location=None
     def getAction(self,belief):
         #print('heading towards',self.location)
+        if self.reset_at_odor:
+            if self.agent.last_obs > 0:
+                self.t = 0
         if np.array_equal(self.location,self.agent.true_pos):
             self.t=0
         if self.t==0:
@@ -59,8 +105,9 @@ class ThompsonSampling:
             index=np.random.choice(indices,p=b)
             self.location=np.unravel_index(index,belief.shape)
         self.t+=1
-        if self.t==self.persistence_time:
-            self.t=0
+        if self.persistence_time is not None:
+            if self.t==self.persistence_time:
+                self.t=0
         return random.choice(follow_loc(self.location,self.agent.true_pos))
 
 class QMDPPolicy:
@@ -99,6 +146,9 @@ class TrivialPolicy:
     def getAction(self,belief):
         return self.action
 
+    def reset(self):
+        pass
+
 class ActionVoting:
     def __init__(self,agent):
         self.agent=agent
@@ -111,7 +161,8 @@ class ActionVoting:
                 for action in range(self.agent.env.numactions):
                     if any((self.agent.env.actions[action] == x).all() for x in actions):
                         self.delta_mat[action,i,j]=1
-
+    def reset(self):
+        pass
     def getAction(self,belief):
         b=self.agent.perseus_belief(belief)
         bestaction=None
@@ -127,6 +178,8 @@ class LocalGradientAscent:
     def __init__(self,agent,verbose=False):
         self.agent=agent
         self.verbose=verbose
+    def reset(self):
+        pass
     def getAction(self,belief):
         best_action=[]
         best_b=0
@@ -183,6 +236,8 @@ class OptimalPolicy:
         self.set_used=False
         self.epsilon=epsilon
         self.last_value=None
+    def reset(self):
+        pass
     def getAction(self,belief):
         if random.random()<self.epsilon:
             return random.choice(self.agent.env.actions)
@@ -222,7 +277,8 @@ class OptimalPolicyWithCorr:
 class GreedyPolicy:
     def __init__(self,agent):
         self.agent=agent
-
+    def reset(self):
+        pass
     def getAction(self,belief):
         location = np.unravel_index(np.argmax(belief),belief.shape)
         return random.choice(follow_loc(location,self.agent.true_pos))
@@ -248,6 +304,8 @@ class SpaceAwareInfotaxis:
         self.tiebreak=tiebreak
         self.tol=tol
 
+    def reset(self):
+        pass
     def getAction(self,belief,bad_points=[]):
         if np.random.random()<self.epsilon:
             return np.random.choice(self.ag.env.actions)
@@ -338,7 +396,8 @@ class SecondOrderInfotaxisPolicy:
         self.out_of_bounds_actions=out_of_bounds_actions
         self.with_corr=with_corr
 
-
+    def reset(self):
+        pass
     def getAction(self,belief):
         if random.random() < self.epsilon:
             return random.choice(ag.env.actions)
@@ -459,7 +518,8 @@ class InfotacticPolicy:
         self.with_corr=with_corr
         self.tiebreak=tiebreak
         self.exponents=exponents
-       
+    def reset(self):
+        pass
     def getAction(self,belief):
         if random.random() < self.epsilon:
             return random.choice(ag.env.actions)

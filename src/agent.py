@@ -72,13 +72,14 @@ class Agent:
 
 #base class for olfactory search
 class OdorAgent(Agent):
-    def __init__(self,e,r0,p=None,belief_env=None):
+    def __init__(self,e,r0,p=None,belief_env=None,minradius=0):
         super().__init__(e,r0,p)
         self.nhits=0
         self.boundary=False
         self.stuck_count=0
         self.prev_pos=None
         self.prev_prev_pos=None
+        self.minradius=minradius
         
         if belief_env is not None:
             self.belief_env=belief_env #if the agent's model doesn't match the true model
@@ -123,7 +124,10 @@ class OdorAgent(Agent):
         y=np.arange(pos[1],pos[1]-self.dims[1],-1)
         l=self.belief_env.get_likelihood(x[:,None],y[None,:],obs)
         out=out*l
-        out[self.true_pos[0],self.true_pos[1]]=0
+        for i in range(-self.minradius,self.minradius+1):
+            for j in range(-self.minradius,self.minradius+1):
+                if i**2+j**2<=self.minradius**2:
+                    out[self.true_pos[0]+i,self.true_pos[1]+j]=0
 
         if np.sum(out)==0:
             raise RuntimeError('zero belief encountered at pos '+str(pos)+', time '+str(self.env.t))
@@ -139,8 +143,8 @@ class OdorAgent(Agent):
 
 #olfactory search in presence of correlations
 class CorrAgent(OdorAgent):
-    def __init__(self,e,r0,p=None,belief_env=None,obs_per_action=1):
-        super().__init__(e,r0,p,belief_env)
+    def __init__(self,e,r0,p=None,belief_env=None,obs_per_action=1,minradius=0):
+        super().__init__(e,r0,p,belief_env,minradius=minradius)
         if obs_per_action>=1:
             self.obs_per_action=int(obs_per_action)
             self.action_per_obs=1
@@ -162,6 +166,12 @@ class CorrAgent(OdorAgent):
         l=self.belief_env.get_likelihood(x[:,None],y[None,:],obs,self.last_obs,last_action)
         l[pos[0],pos[1]]=0
         return l 
+
+    def zero_out_locs(self,locs):
+        for loc in locs:
+            if not self.env.outOfBounds(loc):
+                self.belief[loc[0],loc[1]]=0
+        self.belief/=np.sum(self.belief)
 
     def zero_out_loc(self,loc):
         self.belief[loc[0],loc[1]]=0
@@ -216,7 +226,12 @@ class CorrAgent(OdorAgent):
             self.last_obs=obs
             self.action_counter=0
         self.obs_counter+=1
-        self.zero_out_loc(self.true_pos)
+        locs=[]
+        for i in range(-self.minradius,self.minradius+1):
+            for j in range(-self.minradius,self.minradius+1):
+                if i**2+j**2<=self.minradius**2:
+                    locs.append(self.true_pos+np.array([i,j]))
+        self.zero_out_locs(locs)
         b=self.perseus_belief(self.belief)
 
         if self.obs_counter==self.obs_per_action:
